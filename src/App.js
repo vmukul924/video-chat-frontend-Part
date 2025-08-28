@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
-const SOCKET_URL = "https://video-chat-back-l02k.onrender.com"; // backend URL
-const socket = io(SOCKET_URL);
+// Backend URL from env (Vercel पर भी यही set करना होगा)
+const SOCKET_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:4000";
+
+let socket; // avoid multiple connections
 
 export default function App() {
   const [status, setStatus] = useState("Not connected");
@@ -46,6 +48,12 @@ export default function App() {
 
   // --- Socket handlers ---
   useEffect(() => {
+    if (!socket) {
+      socket = io(SOCKET_URL, {
+        transports: ["websocket"], // ensures websocket transport
+      });
+    }
+
     socket.on("connect", () => setStatus("Connected to server"));
     socket.on("disconnect", () => setStatus("Disconnected"));
 
@@ -173,7 +181,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>Video chat Clone — Video + Chat</h1>
+        <h1>Video Chat Clone — Video + Chat</h1>
         <div className="status">{status}</div>
       </header>
 
