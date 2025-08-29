@@ -2,10 +2,17 @@ import React, { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
-// Backend URL from env (Vercel पर भी यही set करना होगा)
-const SOCKET_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:4000";
+// ✅ Backend URL (local vs production)
+const SOCKET_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://video-chat-back-l02k.onrender.com"
+    : "http://localhost:3001";
 
-let socket; // avoid multiple connections
+// ✅ Socket config with CORS + transports
+const socket = io(SOCKET_URL, {
+  transports: ["websocket", "polling"],
+  withCredentials: true,
+});
 
 export default function App() {
   const [status, setStatus] = useState("Not connected");
@@ -21,26 +28,32 @@ export default function App() {
 
   // --- Peer helper ---
   const createPeerConnection = () => {
+    console.log("⚡ Creating new RTCPeerConnection...");
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
     pc.onicecandidate = (e) => {
       if (e.candidate) {
+        console.log("📡 Sending ICE candidate:", e.candidate);
         socket.emit("signal", { candidate: e.candidate, roomId });
       }
     };
 
     pc.ontrack = (e) => {
+      console.log("🎬 Remote track received:", e.streams);
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = e.streams[0];
       }
     };
 
     if (localStreamRef.current) {
+      console.log("🎥 Adding local tracks to PeerConnection...");
       localStreamRef.current.getTracks().forEach((t) => {
         pc.addTrack(t, localStreamRef.current);
       });
+    } else {
+      console.warn("❌ No local stream found when creating PeerConnection!");
     }
 
     return pc;
@@ -48,16 +61,18 @@ export default function App() {
 
   // --- Socket handlers ---
   useEffect(() => {
-    if (!socket) {
-      socket = io(SOCKET_URL, {
-        transports: ["websocket"], // ensures websocket transport
-      });
-    }
+    socket.on("connect", () => {
+      console.log("✅ Socket connected:", socket.id);
+      setStatus("Connected to server");
+    });
 
-    socket.on("connect", () => setStatus("Connected to server"));
-    socket.on("disconnect", () => setStatus("Disconnected"));
+    socket.on("disconnect", () => {
+      console.log("❌ Socket disconnected");
+      setStatus("Disconnected");
+    });
 
     socket.on("partner_found", async ({ roomId: rid, initiator }) => {
+      console.log("🎉 Partner found, room:", rid, "initiator:", initiator);
       setRoomId(rid);
       setStatus("Partner found 🎉");
       setMessages([]);
@@ -65,6 +80,7 @@ export default function App() {
       peerRef.current = createPeerConnection();
 
       if (initiator) {
+        console.log("📡 Creating Offer...");
         const offer = await peerRef.current.createOffer();
         await peerRef.current.setLocalDescription(offer);
         socket.emit("signal", { sdp: offer, roomId: rid });
@@ -73,22 +89,27 @@ export default function App() {
 
     socket.on("signal", async ({ sdp, candidate }) => {
       if (sdp) {
+        console.log("📩 Received SDP:", sdp.type);
         if (sdp.type === "offer") {
           if (!peerRef.current) peerRef.current = createPeerConnection();
           await peerRef.current.setRemoteDescription(
             new RTCSessionDescription(sdp)
           );
+          console.log("✅ Remote description set (offer). Creating answer...");
           const answer = await peerRef.current.createAnswer();
           await peerRef.current.setLocalDescription(answer);
           socket.emit("signal", { sdp: answer, roomId });
         } else if (sdp.type === "answer") {
+          console.log("✅ Remote description set (answer)");
           await peerRef.current.setRemoteDescription(
             new RTCSessionDescription(sdp)
           );
         }
       } else if (candidate) {
+        console.log("📩 Received ICE candidate:", candidate);
         try {
           await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log("✅ ICE candidate added");
         } catch (e) {
           console.error("ICE add error", e);
         }
@@ -96,10 +117,12 @@ export default function App() {
     });
 
     socket.on("receive_message", (m) => {
+      console.log("💬 Message received:", m);
       setMessages((p) => [...p, m]);
     });
 
     socket.on("partner_left", () => {
+      console.log("👋 Partner left");
       setStatus("Partner left 😢");
       cleanup();
       setTimeout(findPartner, 1500);
@@ -128,15 +151,17 @@ export default function App() {
     setStatus("Searching for partner…");
     setMessages([]);
     try {
+      console.log("🎥 Asking for media devices...");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       });
+      console.log("✅ Local stream acquired:", stream.getTracks());
       localStreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       socket.emit("find_partner");
     } catch (e) {
-      console.error(e);
+      console.error("❌ Media access denied:", e);
       setStatus("Media access denied.");
     }
   };
@@ -144,6 +169,7 @@ export default function App() {
   const sendMessage = () => {
     if (!text.trim() || !roomId) return;
     const payload = { text: text.trim(), roomId };
+    console.log("📡 Sending message:", payload);
     socket.emit("send_message", payload);
     setMessages((p) => [
       ...p,
@@ -157,12 +183,14 @@ export default function App() {
   };
 
   const endChat = () => {
+    console.log("❌ Ending chat...");
     socket.emit("leave_room", { roomId });
     setStatus("Chat ended ❌");
     cleanup();
   };
 
   const cleanup = () => {
+    console.log("🧹 Cleaning up...");
     setRoomId(null);
     if (peerRef.current) {
       try {
@@ -181,7 +209,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>Video Chat Clone — Video + Chat</h1>
+        <h1>Video chat Clone — Video + Chat</h1>
         <div className="status">{status}</div>
       </header>
 
