@@ -2,10 +2,13 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
-// 🔗 Backend URL (direct Render backend use)
-const SOCKET_URL = "https://video-chat-back-m6lk.onrender.com";
+// ✅ Backend URL (local vs production)
+const SOCKET_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://video-chat-back-m6lk.onrender.com"
+    : "http://localhost:3001";
 
-// ✅ Socket client
+// ✅ Socket config
 const socket = io(SOCKET_URL, {
   transports: ["websocket", "polling"],
   withCredentials: true,
@@ -39,17 +42,8 @@ export default function App() {
 
     pc.ontrack = (e) => {
       console.log("🎬 Remote track received:", e.streams);
-
       if (remoteVideoRef.current) {
-        if (e.streams && e.streams[0]) {
-          // normal stream
-          remoteVideoRef.current.srcObject = e.streams[0];
-        } else {
-          // fallback: construct new MediaStream
-          const inboundStream = new MediaStream();
-          inboundStream.addTrack(e.track);
-          remoteVideoRef.current.srcObject = inboundStream;
-        }
+        remoteVideoRef.current.srcObject = e.streams[0];
       }
     };
 
@@ -214,7 +208,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>Video Chat — WebRTC + Socket.IO</h1>
+        <h1>Video chat Clone — Video + Chat</h1>
         <div className="status">{status}</div>
       </header>
 
