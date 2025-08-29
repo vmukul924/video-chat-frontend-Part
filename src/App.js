@@ -5,7 +5,7 @@ import "./App.css";
 // ✅ Backend URL (local vs production)
 const SOCKET_URL =
   process.env.NODE_ENV === "production"
-    ? "https://video-chat-back-l02k.onrender.com"
+    ? "https://video-chat-back-m6lk.onrender.com"
     : "http://localhost:3001";
 
 // ✅ Socket config with CORS + transports
