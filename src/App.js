@@ -22,7 +22,6 @@ export default function App() {
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
-  const remoteStreamRef = useRef(new MediaStream());
   const messagesRef = useRef(null);
 
   // --- Peer helper ---
@@ -49,19 +48,23 @@ export default function App() {
       console.log("❄️ [Peer] ICE state:", pc.iceConnectionState);
     };
 
-    // handle remote tracks
     pc.ontrack = (e) => {
-      console.log("🎬 [Peer] Remote track received:", e.track.kind);
-      if (remoteStreamRef.current) {
-        remoteStreamRef.current.addTrack(e.track);
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = remoteStreamRef.current;
-          console.log("✅ [Peer] Remote stream attached to video element.");
+      console.log("🎬 [Peer] Remote track received:", e.streams);
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = e.streams[0];
+        console.log("✅ [Peer] Remote stream attached to video element.");
+        try {
+          remoteVideoRef.current.play().catch((err) =>
+            console.warn("⚠️ Remote video autoplay blocked:", err)
+          );
+        } catch (err) {
+          console.warn("⚠️ Remote video play() error:", err);
         }
+      } else {
+        console.warn("⚠️ [Peer] remoteVideoRef not ready.");
       }
     };
 
-    // add local tracks
     if (localStreamRef.current) {
       console.log("🎥 [Peer] Adding local tracks...");
       localStreamRef.current.getTracks().forEach((t) => {
@@ -92,7 +95,6 @@ export default function App() {
       setRoomId(rid);
       setStatus("Partner found 🎉");
       setMessages([]);
-      remoteStreamRef.current = new MediaStream();
 
       peerRef.current = createPeerConnection();
 
@@ -244,8 +246,8 @@ export default function App() {
               className="video-el local"
               autoPlay
               playsInline
-              muted
-              style={{ width: "100%", borderRadius: "10px" }}
+              muted // 👈 local हमेशा muted
+              style={{ width: "100%", borderRadius: "10px", background: "#000" }}
             />
           </div>
           <div className="video-wrap" style={{ flex: 1 }}>
@@ -255,8 +257,17 @@ export default function App() {
               className="video-el remote"
               autoPlay
               playsInline
-              style={{ width: "100%", borderRadius: "10px" }}
-              onLoadedMetadata={() => remoteVideoRef.current?.play()}
+              controls   // 👈 सिर्फ़ testing के लिए
+              muted={false} // 👈 remote हमेशा unmuted
+              style={{ width: "100%", borderRadius: "10px", background: "#000" }}
+              onLoadedMetadata={() => {
+                try {
+                  remoteVideoRef.current?.play();
+                  console.log("▶️ Remote video playback started");
+                } catch (err) {
+                  console.warn("⚠️ Remote video autoplay blocked:", err);
+                }
+              }}
             />
           </div>
         </section>
