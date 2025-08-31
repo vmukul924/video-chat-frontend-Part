@@ -22,6 +22,7 @@ export default function App() {
   const remoteVideoRef = useRef(null);
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(new MediaStream());
   const messagesRef = useRef(null);
 
   // --- Peer helper ---
@@ -35,8 +36,6 @@ export default function App() {
       if (e.candidate) {
         console.log("📡 [Peer] Sending ICE candidate:", e.candidate);
         socket.emit("signal", { candidate: e.candidate, roomId });
-      } else {
-        console.log("📡 [Peer] ICE gathering finished.");
       }
     };
 
@@ -44,17 +43,12 @@ export default function App() {
       console.log("🔗 [Peer] Connection state:", pc.connectionState);
     };
 
-    pc.oniceconnectionstatechange = () => {
-      console.log("❄️ [Peer] ICE state:", pc.iceConnectionState);
-    };
-
     pc.ontrack = (e) => {
-      console.log("🎬 [Peer] Remote track received:", e.streams);
+      console.log("🎬 [Peer] Remote track received:", e.track.kind);
+      remoteStreamRef.current.addTrack(e.track);
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = e.streams[0];
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
         console.log("✅ [Peer] Remote stream attached to video element.");
-      } else {
-        console.warn("⚠️ [Peer] remoteVideoRef not ready.");
       }
     };
 
@@ -65,7 +59,7 @@ export default function App() {
         pc.addTrack(t, localStreamRef.current);
       });
     } else {
-      console.warn("❌ [Peer] No local stream found when creating PeerConnection!");
+      console.warn("❌ [Peer] No local stream found!");
     }
 
     return pc;
@@ -221,6 +215,7 @@ export default function App() {
       });
       localStreamRef.current = null;
     }
+    remoteStreamRef.current = new MediaStream();
   };
 
   return (
@@ -250,6 +245,7 @@ export default function App() {
               className="video-el remote"
               autoPlay
               playsInline
+              controls
               style={{ width: "100%", borderRadius: "10px" }}
             />
           </div>
