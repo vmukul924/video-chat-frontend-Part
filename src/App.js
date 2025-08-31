@@ -36,6 +36,8 @@ export default function App() {
       if (e.candidate) {
         console.log("📡 [Peer] Sending ICE candidate:", e.candidate);
         socket.emit("signal", { candidate: e.candidate, roomId });
+      } else {
+        console.log("📡 [Peer] ICE gathering finished.");
       }
     };
 
@@ -43,15 +45,23 @@ export default function App() {
       console.log("🔗 [Peer] Connection state:", pc.connectionState);
     };
 
+    pc.oniceconnectionstatechange = () => {
+      console.log("❄️ [Peer] ICE state:", pc.iceConnectionState);
+    };
+
+    // handle remote tracks
     pc.ontrack = (e) => {
       console.log("🎬 [Peer] Remote track received:", e.track.kind);
-      remoteStreamRef.current.addTrack(e.track);
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStreamRef.current;
-        console.log("✅ [Peer] Remote stream attached to video element.");
+      if (remoteStreamRef.current) {
+        remoteStreamRef.current.addTrack(e.track);
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = remoteStreamRef.current;
+          console.log("✅ [Peer] Remote stream attached to video element.");
+        }
       }
     };
 
+    // add local tracks
     if (localStreamRef.current) {
       console.log("🎥 [Peer] Adding local tracks...");
       localStreamRef.current.getTracks().forEach((t) => {
@@ -59,7 +69,7 @@ export default function App() {
         pc.addTrack(t, localStreamRef.current);
       });
     } else {
-      console.warn("❌ [Peer] No local stream found!");
+      console.warn("❌ [Peer] No local stream found when creating PeerConnection!");
     }
 
     return pc;
@@ -82,6 +92,7 @@ export default function App() {
       setRoomId(rid);
       setStatus("Partner found 🎉");
       setMessages([]);
+      remoteStreamRef.current = new MediaStream();
 
       peerRef.current = createPeerConnection();
 
@@ -215,7 +226,6 @@ export default function App() {
       });
       localStreamRef.current = null;
     }
-    remoteStreamRef.current = new MediaStream();
   };
 
   return (
@@ -245,8 +255,8 @@ export default function App() {
               className="video-el remote"
               autoPlay
               playsInline
-              controls
               style={{ width: "100%", borderRadius: "10px" }}
+              onLoadedMetadata={() => remoteVideoRef.current?.play()}
             />
           </div>
         </section>
