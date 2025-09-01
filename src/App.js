@@ -25,65 +25,58 @@ export default function App() {
   const messagesRef = useRef(null);
 
   // --- Peer helper ---
-  const createPeerConnection = useCallback(
-    (rid) => {
-      console.log("⚡ [Peer] Creating new RTCPeerConnection...");
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
+  const createPeerConnection = useCallback(() => {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
 
-      pc.onicecandidate = (e) => {
-        if (e.candidate) {
-          socket.emit("signal", { candidate: e.candidate, roomId: rid });
-        }
-      };
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        socket.emit("signal", { candidate: e.candidate, roomId });
+      }
+    };
 
-      pc.onconnectionstatechange = () => {
-        console.log("🔗 [Peer] Connection state:", pc.connectionState);
-      };
+    pc.onconnectionstatechange = () => {
+      console.log("Connection state:", pc.connectionState);
+    };
 
-      // --- Remote stream handling ---
-      const remoteStream = new MediaStream();
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE state:", pc.iceConnectionState);
+    };
+
+    // --- Remote track ---
+    pc.ontrack = (e) => {
+      console.log("Remote track received:", e.streams);
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
+        remoteVideoRef.current.srcObject = e.streams[0];
+        remoteVideoRef.current.muted = false;
+        remoteVideoRef.current
+          .play()
+          .then(() => console.log("Remote video playing"))
+          .catch((err) => console.warn("Remote autoplay blocked:", err));
       }
+    };
 
-      pc.ontrack = (e) => {
-        console.log("🎬 [Peer] Remote track:", e.track.kind);
-        remoteStream.addTrack(e.track);
-      };
+    // --- Add local tracks if already acquired ---
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((t) => {
+        pc.addTrack(t, localStreamRef.current);
+      });
+    }
 
-      // --- Add local tracks ---
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((track) => {
-          pc.addTrack(track, localStreamRef.current);
-        });
-      }
-
-      return pc;
-    },
-    []
-  );
+    return pc;
+  }, [roomId]);
 
   // --- Socket handlers ---
   useEffect(() => {
-    socket.on("connect", () => {
-      console.log("✅ [Socket] Connected:", socket.id);
-      setStatus("Connected to server");
-    });
-
-    socket.on("disconnect", () => {
-      console.log("❌ [Socket] Disconnected");
-      setStatus("Disconnected");
-    });
+    socket.on("connect", () => setStatus("Connected to server"));
+    socket.on("disconnect", () => setStatus("Disconnected"));
 
     socket.on("partner_found", async ({ roomId: rid, initiator }) => {
-      console.log("🎉 [Socket] Partner found:", rid, "initiator:", initiator);
       setRoomId(rid);
       setStatus("Partner found 🎉");
       setMessages([]);
-
-      peerRef.current = createPeerConnection(rid);
+      peerRef.current = createPeerConnection();
 
       if (initiator) {
         const offer = await peerRef.current.createOffer();
@@ -92,14 +85,15 @@ export default function App() {
       }
     });
 
-    socket.on("signal", async ({ sdp, candidate, roomId: rid }) => {
+    socket.on("signal", async ({ sdp, candidate }) => {
+      if (!peerRef.current) peerRef.current = createPeerConnection();
+
       if (sdp) {
         if (sdp.type === "offer") {
-          if (!peerRef.current) peerRef.current = createPeerConnection(rid);
           await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
           const answer = await peerRef.current.createAnswer();
           await peerRef.current.setLocalDescription(answer);
-          socket.emit("signal", { sdp: answer, roomId: rid });
+          socket.emit("signal", { sdp: answer, roomId });
         } else if (sdp.type === "answer") {
           await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
         }
@@ -107,14 +101,12 @@ export default function App() {
         try {
           await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (e) {
-          console.error("❌ [Peer] ICE add error:", e);
+          console.error("ICE add error:", e);
         }
       }
     });
 
-    socket.on("receive_message", (m) => {
-      setMessages((p) => [...p, m]);
-    });
+    socket.on("receive_message", (m) => setMessages((p) => [...p, m]));
 
     socket.on("partner_left", () => {
       setStatus("Partner left 😢");
@@ -130,30 +122,28 @@ export default function App() {
       socket.off("receive_message");
       socket.off("partner_left");
     };
-  }, [createPeerConnection]);
+  }, [createPeerConnection, roomId]);
 
-  // autoscroll
+  // Autoscroll chat
   useEffect(() => {
     if (messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages]);
 
-  // actions
+  // --- Actions ---
   const findPartner = async () => {
     setStatus("Searching for partner…");
     setMessages([]);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
+
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+
       socket.emit("find_partner");
     } catch (e) {
+      console.error("Media access denied:", e);
       setStatus("Media access denied.");
     }
   };
@@ -178,9 +168,7 @@ export default function App() {
   const cleanup = () => {
     setRoomId(null);
     if (peerRef.current) {
-      try {
-        peerRef.current.close();
-      } catch {}
+      peerRef.current.close();
       peerRef.current = null;
     }
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -199,15 +187,16 @@ export default function App() {
       </header>
 
       <main className="main">
+        {/* Video Panel */}
         <section className="video-panel" style={{ display: "flex", gap: "10px" }}>
           <div className="video-wrap" style={{ flex: 1 }}>
             <div className="video-label">You</div>
             <video
               ref={localVideoRef}
-              className="video-el local"
               autoPlay
               playsInline
               muted
+              className="video-el local"
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
             />
           </div>
@@ -215,16 +204,16 @@ export default function App() {
             <div className="video-label">Partner</div>
             <video
               ref={remoteVideoRef}
-              className="video-el remote"
               autoPlay
               playsInline
-              muted={true} // 🔇 autoplay safe
-              onClick={(e) => (e.target.muted = false)} // user click → unmute
+              muted={false}
+              className="video-el remote"
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
             />
           </div>
         </section>
 
+        {/* Controls */}
         <section className="controls">
           {!roomId ? (
             <button className="btn primary" onClick={findPartner}>
@@ -242,20 +231,23 @@ export default function App() {
           )}
         </section>
 
+        {/* Chat */}
         <section className="chat-panel">
           <div className="messages" ref={messagesRef}>
             {messages.length === 0 ? (
               <div className="empty">No messages yet — say hi 👋</div>
             ) : (
               messages.map((m, i) => (
-                <div key={i} className={`msg ${m.from === socket.id ? "msg-sent" : "msg-recv"}`}>
+                <div
+                  key={i}
+                  className={`msg ${m.from === socket.id ? "msg-sent" : "msg-recv"}`}
+                >
                   <div className="msg-text">{m.text}</div>
                   <div className="msg-time">{new Date(m.createdAt).toLocaleTimeString()}</div>
                 </div>
               ))
             )}
           </div>
-
           <div className="chat-input">
             <input
               value={text}
