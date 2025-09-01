@@ -48,23 +48,22 @@ export default function App() {
       console.log("❄️ [Peer] ICE state:", pc.iceConnectionState);
     };
 
+    // --- Remote track ---
     pc.ontrack = (e) => {
       console.log("🎬 [Peer] Remote track received:", e.streams);
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = e.streams[0];
-        console.log("✅ [Peer] Remote stream attached to video element.");
-        try {
-          remoteVideoRef.current.play().catch((err) =>
-            console.warn("⚠️ Remote video autoplay blocked:", err)
-          );
-        } catch (err) {
-          console.warn("⚠️ Remote video play() error:", err);
-        }
-      } else {
-        console.warn("⚠️ [Peer] remoteVideoRef not ready.");
+        const inboundStream = e.streams[0];
+        remoteVideoRef.current.srcObject = inboundStream;
+        remoteVideoRef.current.muted = false; // 🔊 enable audio
+        remoteVideoRef.current
+          .play()
+          .then(() => console.log("▶️ [Peer] Remote video playing"))
+          .catch((err) => console.warn("⚠️ Remote autoplay blocked:", err));
+        console.log("✅ [Peer] Remote stream attached.");
       }
     };
 
+    // --- Add local stream tracks ---
     if (localStreamRef.current) {
       console.log("🎥 [Peer] Adding local tracks...");
       localStreamRef.current.getTracks().forEach((t) => {
@@ -72,7 +71,7 @@ export default function App() {
         pc.addTrack(t, localStreamRef.current);
       });
     } else {
-      console.warn("❌ [Peer] No local stream found when creating PeerConnection!");
+      console.warn("❌ [Peer] No local stream when creating PeerConnection!");
     }
 
     return pc;
@@ -112,15 +111,19 @@ export default function App() {
         console.log("📩 [Socket] Received SDP:", sdp.type);
         if (sdp.type === "offer") {
           if (!peerRef.current) peerRef.current = createPeerConnection();
-          await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          await peerRef.current.setRemoteDescription(
+            new RTCSessionDescription(sdp)
+          );
           console.log("✅ [Peer] Remote description set (offer).");
           const answer = await peerRef.current.createAnswer();
           await peerRef.current.setLocalDescription(answer);
           console.log("📡 [Peer] Sending Answer SDP:", answer);
           socket.emit("signal", { sdp: answer, roomId });
         } else if (sdp.type === "answer") {
+          await peerRef.current.setRemoteDescription(
+            new RTCSessionDescription(sdp)
+          );
           console.log("✅ [Peer] Remote description set (answer).");
-          await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
         }
       } else if (candidate) {
         console.log("📩 [Socket] Received ICE candidate:", candidate);
@@ -176,7 +179,7 @@ export default function App() {
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        console.log("🎥 [Media] Local stream attached to video element.");
+        console.log("🎥 [Media] Local stream attached.");
       }
       socket.emit("find_partner");
       console.log("📡 [Socket] Emitted find_partner");
@@ -233,7 +236,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>Video chat Clone — Video + Chat</h1>
+        <h1>Video Chat Clone — Video + Chat</h1>
         <div className="status">{status}</div>
       </header>
 
@@ -257,7 +260,6 @@ export default function App() {
               className="video-el remote"
               autoPlay
               playsInline
-              controls   // 👈 सिर्फ़ testing के लिए
               muted={false} // 👈 remote हमेशा unmuted
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
               onLoadedMetadata={() => {
@@ -265,7 +267,7 @@ export default function App() {
                   remoteVideoRef.current?.play();
                   console.log("▶️ Remote video playback started");
                 } catch (err) {
-                  console.warn("⚠️ Remote video autoplay blocked:", err);
+                  console.warn("⚠️ Remote autoplay blocked:", err);
                 }
               }}
             />
