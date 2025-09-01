@@ -25,57 +25,45 @@ export default function App() {
   const messagesRef = useRef(null);
 
   // --- Peer helper ---
-  const createPeerConnection = useCallback(() => {
-    console.log("⚡ [Peer] Creating new RTCPeerConnection...");
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        console.log("📡 [Peer] Sending ICE candidate:", e.candidate);
-        socket.emit("signal", { candidate: e.candidate, roomId });
-      } else {
-        console.log("📡 [Peer] ICE gathering finished.");
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log("🔗 [Peer] Connection state:", pc.connectionState);
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log("❄️ [Peer] ICE state:", pc.iceConnectionState);
-    };
-
-    // --- Remote track ---
-    pc.ontrack = (e) => {
-      console.log("🎬 [Peer] Remote track received:", e.streams);
-      if (remoteVideoRef.current) {
-        const inboundStream = e.streams[0];
-        remoteVideoRef.current.srcObject = inboundStream;
-        remoteVideoRef.current.muted = false; // 🔊 enable audio
-        remoteVideoRef.current
-          .play()
-          .then(() => console.log("▶️ [Peer] Remote video playing"))
-          .catch((err) => console.warn("⚠️ Remote autoplay blocked:", err));
-        console.log("✅ [Peer] Remote stream attached.");
-      }
-    };
-
-    // --- Add local stream tracks ---
-    if (localStreamRef.current) {
-      console.log("🎥 [Peer] Adding local tracks...");
-      localStreamRef.current.getTracks().forEach((t) => {
-        console.log("   ➡️ Track:", t.kind, t.label);
-        pc.addTrack(t, localStreamRef.current);
+  const createPeerConnection = useCallback(
+    (rid) => {
+      console.log("⚡ [Peer] Creating new RTCPeerConnection...");
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
-    } else {
-      console.warn("❌ [Peer] No local stream when creating PeerConnection!");
-    }
 
-    return pc;
-  }, [roomId]);
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          socket.emit("signal", { candidate: e.candidate, roomId: rid });
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log("🔗 [Peer] Connection state:", pc.connectionState);
+      };
+
+      // --- Remote stream handling ---
+      const remoteStream = new MediaStream();
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream;
+      }
+
+      pc.ontrack = (e) => {
+        console.log("🎬 [Peer] Remote track:", e.track.kind);
+        remoteStream.addTrack(e.track);
+      };
+
+      // --- Add local tracks ---
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current);
+        });
+      }
+
+      return pc;
+    },
+    []
+  );
 
   // --- Socket handlers ---
   useEffect(() => {
@@ -95,41 +83,29 @@ export default function App() {
       setStatus("Partner found 🎉");
       setMessages([]);
 
-      peerRef.current = createPeerConnection();
+      peerRef.current = createPeerConnection(rid);
 
       if (initiator) {
-        console.log("📡 [Peer] Creating Offer...");
         const offer = await peerRef.current.createOffer();
         await peerRef.current.setLocalDescription(offer);
-        console.log("📩 [Peer] Sending Offer SDP:", offer);
         socket.emit("signal", { sdp: offer, roomId: rid });
       }
     });
 
-    socket.on("signal", async ({ sdp, candidate }) => {
+    socket.on("signal", async ({ sdp, candidate, roomId: rid }) => {
       if (sdp) {
-        console.log("📩 [Socket] Received SDP:", sdp.type);
         if (sdp.type === "offer") {
-          if (!peerRef.current) peerRef.current = createPeerConnection();
-          await peerRef.current.setRemoteDescription(
-            new RTCSessionDescription(sdp)
-          );
-          console.log("✅ [Peer] Remote description set (offer).");
+          if (!peerRef.current) peerRef.current = createPeerConnection(rid);
+          await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
           const answer = await peerRef.current.createAnswer();
           await peerRef.current.setLocalDescription(answer);
-          console.log("📡 [Peer] Sending Answer SDP:", answer);
-          socket.emit("signal", { sdp: answer, roomId });
+          socket.emit("signal", { sdp: answer, roomId: rid });
         } else if (sdp.type === "answer") {
-          await peerRef.current.setRemoteDescription(
-            new RTCSessionDescription(sdp)
-          );
-          console.log("✅ [Peer] Remote description set (answer).");
+          await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
         }
       } else if (candidate) {
-        console.log("📩 [Socket] Received ICE candidate:", candidate);
         try {
           await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-          console.log("✅ [Peer] ICE candidate added.");
         } catch (e) {
           console.error("❌ [Peer] ICE add error:", e);
         }
@@ -137,12 +113,10 @@ export default function App() {
     });
 
     socket.on("receive_message", (m) => {
-      console.log("💬 [Chat] Message received:", m);
       setMessages((p) => [...p, m]);
     });
 
     socket.on("partner_left", () => {
-      console.log("👋 [Socket] Partner left");
       setStatus("Partner left 😢");
       cleanup();
       setTimeout(findPartner, 1500);
@@ -156,7 +130,7 @@ export default function App() {
       socket.off("receive_message");
       socket.off("partner_left");
     };
-  }, [createPeerConnection, roomId]);
+  }, [createPeerConnection]);
 
   // autoscroll
   useEffect(() => {
@@ -170,21 +144,16 @@ export default function App() {
     setStatus("Searching for partner…");
     setMessages([]);
     try {
-      console.log("🎥 [Media] Requesting camera & mic...");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       });
-      console.log("✅ [Media] Local stream acquired:", stream.getTracks());
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
-        console.log("🎥 [Media] Local stream attached.");
       }
       socket.emit("find_partner");
-      console.log("📡 [Socket] Emitted find_partner");
     } catch (e) {
-      console.error("❌ [Media] Access denied:", e);
       setStatus("Media access denied.");
     }
   };
@@ -192,43 +161,32 @@ export default function App() {
   const sendMessage = () => {
     if (!text.trim() || !roomId) return;
     const payload = { text: text.trim(), roomId };
-    console.log("📡 [Chat] Sending message:", payload);
     socket.emit("send_message", payload);
     setMessages((p) => [
       ...p,
-      {
-        from: socket.id,
-        text: text.trim(),
-        createdAt: new Date().toISOString(),
-      },
+      { from: socket.id, text: text.trim(), createdAt: new Date().toISOString() },
     ]);
     setText("");
   };
 
   const endChat = () => {
-    console.log("❌ [Chat] Ending chat...");
     socket.emit("leave_room", { roomId });
     setStatus("Chat ended ❌");
     cleanup();
   };
 
   const cleanup = () => {
-    console.log("🧹 [Cleanup] Running cleanup...");
     setRoomId(null);
     if (peerRef.current) {
       try {
         peerRef.current.close();
-        console.log("✅ [Cleanup] Peer connection closed.");
       } catch {}
       peerRef.current = null;
     }
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => {
-        t.stop();
-        console.log("🛑 [Cleanup] Stopped track:", t.kind);
-      });
+      localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
   };
@@ -249,7 +207,7 @@ export default function App() {
               className="video-el local"
               autoPlay
               playsInline
-              muted // 👈 local हमेशा muted
+              muted
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
             />
           </div>
@@ -260,16 +218,9 @@ export default function App() {
               className="video-el remote"
               autoPlay
               playsInline
-              muted={false} // 👈 remote हमेशा unmuted
+              muted={true} // 🔇 autoplay safe
+              onClick={(e) => (e.target.muted = false)} // user click → unmute
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
-              onLoadedMetadata={() => {
-                try {
-                  remoteVideoRef.current?.play();
-                  console.log("▶️ Remote video playback started");
-                } catch (err) {
-                  console.warn("⚠️ Remote autoplay blocked:", err);
-                }
-              }}
             />
           </div>
         </section>
@@ -297,14 +248,9 @@ export default function App() {
               <div className="empty">No messages yet — say hi 👋</div>
             ) : (
               messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`msg ${m.from === socket.id ? "msg-sent" : "msg-recv"}`}
-                >
+                <div key={i} className={`msg ${m.from === socket.id ? "msg-sent" : "msg-recv"}`}>
                   <div className="msg-text">{m.text}</div>
-                  <div className="msg-time">
-                    {new Date(m.createdAt).toLocaleTimeString()}
-                  </div>
+                  <div className="msg-time">{new Date(m.createdAt).toLocaleTimeString()}</div>
                 </div>
               ))
             )}
@@ -318,11 +264,7 @@ export default function App() {
               placeholder={roomId ? "Type a message..." : "Find partner first"}
               disabled={!roomId}
             />
-            <button
-              className="btn"
-              onClick={sendMessage}
-              disabled={!roomId || !text.trim()}
-            >
+            <button className="btn" onClick={sendMessage} disabled={!roomId || !text.trim()}>
               Send
             </button>
           </div>
