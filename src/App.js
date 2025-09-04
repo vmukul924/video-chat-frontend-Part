@@ -4,7 +4,7 @@ import "./App.css";
 
 const SOCKET_URL =
   process.env.NODE_ENV === "production"
-    ? "https://video-chat-back-l02k.onrender.com"
+    ? "https://video-chat-back-m6lk.onrender.com"
     : "http://localhost:4000";
 
 const socket = io(SOCKET_URL, {
