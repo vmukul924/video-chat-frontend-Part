@@ -12,12 +12,19 @@ const socket = io(SOCKET_URL, {
   withCredentials: true,
 });
 
+// --- helper for logs ---
+function clientLog(...args) {
+  console.log(...args);
+  socket.emit("client_log", args.map(a =>
+    typeof a === "object" ? JSON.stringify(a) : a
+  ));
+}
+
 export default function App() {
   const [status, setStatus] = useState("Not connected");
   const [roomId, setRoomId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-  const [remoteReady, setRemoteReady] = useState(false); // ✅ New state
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -34,25 +41,25 @@ export default function App() {
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         socket.emit("signal", { candidate: e.candidate, roomId });
+        clientLog("📡 ICE candidate sent", e.candidate);
       }
     };
 
     pc.onconnectionstatechange = () => {
-      console.log("Connection state:", pc.connectionState);
+      clientLog("🔗 Connection state:", pc.connectionState);
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log("ICE state:", pc.iceConnectionState);
+      clientLog("❄️ ICE state:", pc.iceConnectionState);
     };
 
     // --- Remote track ---
     pc.ontrack = (e) => {
-      console.log("Remote track received:", e.streams);
+      clientLog("🎥 Remote track received:", e.streams);
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = e.streams[0];
         remoteVideoRef.current.muted = false;
-        setRemoteReady(true); // ✅ remote stream ready
-        console.log("✅ Remote stream attached to video element");
+        clientLog("✅ Remote stream attached to video element");
       }
     };
 
@@ -61,6 +68,7 @@ export default function App() {
       localStreamRef.current.getTracks().forEach((t) => {
         pc.addTrack(t, localStreamRef.current);
       });
+      clientLog("🎤 Local tracks added", localStreamRef.current.getTracks());
     }
 
     return pc;
@@ -75,13 +83,13 @@ export default function App() {
       setRoomId(rid);
       setStatus("Partner found 🎉");
       setMessages([]);
-      setRemoteReady(false); // reset
       peerRef.current = createPeerConnection();
 
       if (initiator) {
         const offer = await peerRef.current.createOffer();
         await peerRef.current.setLocalDescription(offer);
         socket.emit("signal", { sdp: offer, roomId: rid });
+        clientLog("📨 Offer sent", offer);
       }
     });
 
@@ -91,17 +99,21 @@ export default function App() {
       if (sdp) {
         if (sdp.type === "offer") {
           await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          clientLog("📥 Offer received", sdp);
           const answer = await peerRef.current.createAnswer();
           await peerRef.current.setLocalDescription(answer);
           socket.emit("signal", { sdp: answer, roomId });
+          clientLog("📨 Answer sent", answer);
         } else if (sdp.type === "answer") {
           await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          clientLog("📥 Answer received", sdp);
         }
       } else if (candidate) {
         try {
           await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          clientLog("📥 ICE candidate received", candidate);
         } catch (e) {
-          console.error("ICE add error:", e);
+          clientLog("❌ ICE add error:", e);
         }
       }
     });
@@ -142,8 +154,9 @@ export default function App() {
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
       socket.emit("find_partner");
+      clientLog("🎤 Local stream captured", stream);
     } catch (e) {
-      console.error("Media access denied:", e);
+      clientLog("❌ Media access denied:", e);
       setStatus("Media access denied.");
     }
   };
@@ -212,27 +225,12 @@ export default function App() {
               onLoadedMetadata={() => {
                 try {
                   remoteVideoRef.current?.play();
-                  console.log("▶️ Remote video playback started");
+                  clientLog("▶️ Remote video playback started");
                 } catch (err) {
-                  console.warn("⚠️ Remote video autoplay blocked:", err);
+                  clientLog("⚠️ Remote video autoplay blocked:", err);
                 }
               }}
             />
-            {/* ✅ Manual play button */}
-            {remoteReady && (
-              <button
-                className="btn"
-                style={{ marginTop: "5px" }}
-                onClick={() => {
-                  remoteVideoRef.current
-                    ?.play()
-                    .then(() => console.log("▶️ Remote video manually started"))
-                    .catch((err) => console.error("Manual play failed:", err));
-                }}
-              >
-                ▶️ Start Remote Video
-              </button>
-            )}
           </div>
         </section>
 
