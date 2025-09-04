@@ -50,10 +50,7 @@ export default function App() {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = e.streams[0];
         remoteVideoRef.current.muted = false;
-        remoteVideoRef.current
-          .play()
-          .then(() => console.log("Remote video playing"))
-          .catch((err) => console.warn("Remote autoplay blocked:", err));
+        console.log("✅ Remote stream attached to video element");
       }
     };
 
@@ -209,6 +206,14 @@ export default function App() {
               muted={false}
               className="video-el remote"
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
+              onLoadedMetadata={() => {
+                try {
+                  remoteVideoRef.current?.play();
+                  console.log("▶️ Remote video playback started");
+                } catch (err) {
+                  console.warn("⚠️ Remote video autoplay blocked:", err);
+                }
+              }}
             />
           </div>
         </section>
