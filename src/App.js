@@ -302,7 +302,6 @@ export default function App() {
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const remoteAudioRef = useRef(null); // ✅ add this
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
   const messagesRef = useRef(null);
@@ -331,15 +330,19 @@ export default function App() {
     pc.ontrack = (e) => {
       console.log("🎬 Remote track received:", e.track.kind, e.streams);
 
-      if (e.track.kind === "video" && remoteVideoRef.current) {
-        if (!remoteVideoRef.current.srcObject) {
-          remoteVideoRef.current.srcObject = e.streams[0];
-        }
+      if (e.track.kind === "video" && remoteVideoRef.current && !remoteVideoRef.current.srcObject) {
+        remoteVideoRef.current.srcObject = e.streams[0];
+        remoteVideoRef.current
+          .play()
+          .then(() => console.log("▶️ Remote video playing"))
+          .catch((err) => console.warn("⚠️ Remote video autoplay blocked:", err));
       }
 
-      if (e.track.kind === "audio" && remoteAudioRef.current) {
-        if (!remoteAudioRef.current.srcObject) {
-          remoteAudioRef.current.srcObject = e.streams[0];
+      if (e.track.kind === "audio") {
+        const audioEl = document.getElementById("remoteAudio");
+        if (audioEl && !audioEl.srcObject) {
+          audioEl.srcObject = e.streams[0];
+          console.log("🔊 Remote audio attached");
         }
       }
     };
@@ -462,7 +465,6 @@ export default function App() {
       peerRef.current = null;
     }
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -501,8 +503,8 @@ export default function App() {
               className="video-el remote"
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
             />
-            {/* ✅ hidden audio element */}
-            <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
+            {/* Hidden audio element */}
+            <audio id="remoteAudio" autoPlay playsInline style={{ display: "none" }} />
           </div>
         </section>
 
@@ -536,7 +538,9 @@ export default function App() {
                   className={`msg ${m.from === socket.id ? "msg-sent" : "msg-recv"}`}
                 >
                   <div className="msg-text">{m.text}</div>
-                  <div className="msg-time">{new Date(m.createdAt).toLocaleTimeString()}</div>
+                  <div className="msg-time">
+                    {new Date(m.createdAt).toLocaleTimeString()}
+                  </div>
                 </div>
               ))
             )}
