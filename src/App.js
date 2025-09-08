@@ -1,4 +1,4 @@
-// import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
@@ -20,7 +20,7 @@ export default function App() {
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const remoteAudioRef = useRef(null); // ✅ add this
+  const remoteAudioRef = useRef(null);
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
   const messagesRef = useRef(null);
@@ -62,11 +62,11 @@ export default function App() {
       }
     };
 
-    // --- Add local tracks if already acquired ---
+    // --- Add local tracks ---
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => {
-        pc.addTrack(t, localStreamRef.current);
-      });
+      localStreamRef.current.getTracks().forEach((t) =>
+        pc.addTrack(t, localStreamRef.current)
+      );
     }
 
     return pc;
@@ -95,16 +95,22 @@ export default function App() {
 
       if (sdp) {
         if (sdp.type === "offer") {
-          await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          await peerRef.current.setRemoteDescription(
+            new RTCSessionDescription(sdp)
+          );
           const answer = await peerRef.current.createAnswer();
           await peerRef.current.setLocalDescription(answer);
           socket.emit("signal", { sdp: answer, roomId });
         } else if (sdp.type === "answer") {
-          await peerRef.current.setRemoteDescription(new RTCSessionDescription(sdp));
+          await peerRef.current.setRemoteDescription(
+            new RTCSessionDescription(sdp)
+          );
         }
       } else if (candidate) {
         try {
-          await peerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          await peerRef.current.addIceCandidate(
+            new RTCIceCandidate(candidate)
+          );
         } catch (e) {
           console.error("ICE add error:", e);
         }
@@ -129,7 +135,7 @@ export default function App() {
     };
   }, [createPeerConnection, roomId]);
 
-  // Autoscroll chat
+  // --- Auto scroll chat ---
   useEffect(() => {
     if (messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
@@ -146,7 +152,6 @@ export default function App() {
         audio: true,
       });
       localStreamRef.current = stream;
-
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
       socket.emit("find_partner");
@@ -219,7 +224,7 @@ export default function App() {
               className="video-el remote"
               style={{ width: "100%", borderRadius: "10px", background: "#000" }}
             />
-            {/* ✅ hidden audio element */}
+            {/* ✅ Hidden audio element */}
             <audio ref={remoteAudioRef} autoPlay playsInline style={{ display: "none" }} />
           </div>
         </section>
@@ -254,7 +259,9 @@ export default function App() {
                   className={`msg ${m.from === socket.id ? "msg-sent" : "msg-recv"}`}
                 >
                   <div className="msg-text">{m.text}</div>
-                  <div className="msg-time">{new Date(m.createdAt).toLocaleTimeString()}</div>
+                  <div className="msg-time">
+                    {new Date(m.createdAt).toLocaleTimeString()}
+                  </div>
                 </div>
               ))
             )}
@@ -267,7 +274,11 @@ export default function App() {
               placeholder={roomId ? "Type a message..." : "Find partner first"}
               disabled={!roomId}
             />
-            <button className="btn" onClick={sendMessage} disabled={!roomId || !text.trim()}>
+            <button
+              className="btn"
+              onClick={sendMessage}
+              disabled={!roomId || !text.trim()}
+            >
               Send
             </button>
           </div>
@@ -280,4 +291,3 @@ export default function App() {
     </div>
   );
 }
-import React, { useEffect, useRef, useState, useCallback } from "react";
