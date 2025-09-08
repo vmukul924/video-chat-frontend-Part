@@ -285,6 +285,7 @@
 //     </div>
 //   );
 // }
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
@@ -335,32 +336,20 @@ export default function App() {
     pc.ontrack = (e) => {
       console.log("🎬 Remote track received:", e.track.kind, e.streams);
 
-      if (e.track.kind === "video" && remoteVideoRef.current) {
+      if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = e.streams[0];
-        remoteVideoRef.current
-          .play()
-          .then(() => console.log("▶️ Remote video playing"))
-          .catch((err) => console.warn("⚠️ Remote video autoplay blocked:", err));
-      }
-
-      if (e.track.kind === "audio") {
-        const audioEl = document.createElement("audio");
-        audioEl.srcObject = e.streams[0];
-        audioEl.autoplay = true;
-        audioEl.playsInline = true;
-        audioEl.style.display = "none"; // hidden
-        audioEl
-          .play()
-          .then(() => console.log("🔊 Remote audio playing"))
-          .catch((err) => console.warn("⚠️ Remote audio autoplay blocked:", err));
-        document.body.appendChild(audioEl);
       }
     };
 
-    // --- Add local tracks if already acquired ---
+    // --- Add local tracks only once ---
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((t) => {
-        pc.addTrack(t, localStreamRef.current);
+      localStreamRef.current.getTracks().forEach((track) => {
+        const alreadyAdded = pc
+          .getSenders()
+          .find((sender) => sender.track === track);
+        if (!alreadyAdded) {
+          pc.addTrack(track, localStreamRef.current);
+        }
       });
     }
 
@@ -377,13 +366,6 @@ export default function App() {
       setStatus("Partner found 🎉");
       setMessages([]);
       peerRef.current = createPeerConnection();
-
-      // 🔑 If we already have localStream, add tracks here too
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) =>
-          peerRef.current.addTrack(t, localStreamRef.current)
-        );
-      }
 
       if (initiator) {
         const offer = await peerRef.current.createOffer();
@@ -450,13 +432,6 @@ export default function App() {
       localStreamRef.current = stream;
 
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-
-      // 🔑 Attach tracks immediately after getting stream
-      if (peerRef.current) {
-        stream.getTracks().forEach((track) =>
-          peerRef.current.addTrack(track, stream)
-        );
-      }
 
       socket.emit("find_partner");
     } catch (e) {
